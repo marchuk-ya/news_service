@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+        <h1 class="text-3xl font-bold mb-4">{{.News.Title}}</h1>
+        
+        <div class="text-gray-500 text-sm mb-6">
+            <p>Created: {{.News.CreatedAt.Format "2006-01-02 15:04:05"}}</p>
+            <p>Last updated: {{.News.UpdatedAt.Format "2006-01-02 15:04:05"}}</p>
+        </div>
+
+        <div class="prose max-w-none mb-8">
+            {{.News.Content}}
+        </div>
+
+        <div class="flex justify-between items-center">
+            <a href="/" class="text-blue-500 hover:text-blue-700">
+                Back to List
+            </a>
+            <div class="flex gap-2">
+                <a href="/news/{{.News.ID.Hex}}/edit" 
+                   class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Edit
+                </a>
+                <button hx-delete="/news/{{.News.ID.Hex}}"
+                        hx-confirm="Are you sure you want to delete this news?"
+                        hx-push-url="true"
+                        hx-target="body"
+                        class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}} 
