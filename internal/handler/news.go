@@ -137,15 +137,13 @@ func (h *NewsHandler) UpdateNews(c *gin.Context) {
 func (h *NewsHandler) DeleteNews(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeleteNews(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"error": "Failed to delete news",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "News deleted successfully",
-	})
+	c.HTML(http.StatusOK, "news/empty.html", nil)
 }
 
 func (h *NewsHandler) SearchNews(c *gin.Context) {

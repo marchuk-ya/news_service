@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"html/template"
 	"log"
 	"os"
 	"time"
@@ -10,14 +11,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"html/template"
 	"news_service/internal/handler"
 	"news_service/internal/repository/mongodb"
 	"news_service/internal/service"
 )
 
 func main() {
-	// Initialize MongoDB connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -32,12 +31,10 @@ func main() {
 	}
 	defer client.Disconnect(ctx)
 
-	// Ping the database
 	if err := client.Ping(ctx, nil); err != nil {
 		log.Fatal(err)
 	}
 
-	// Initialize dependencies
 	database := os.Getenv("MONGODB_DATABASE")
 	if database == "" {
 		database = "news_service"
@@ -47,24 +44,20 @@ func main() {
 	newsService := service.NewNewsService(newsRepo)
 	newsHandler := handler.NewNewsHandler(newsService)
 
-	// Initialize Gin router
 	router := gin.Default()
 
-	// Register custom template functions
 	funcMap := template.FuncMap{
 		"subtract": func(a, b int) int { return a - b },
 		"add":      func(a, b int) int { return a + b },
 		"multiply": func(a, b int) int { return a * b },
 	}
-	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("web/templates/**/*"))
-	router.SetHTMLTemplate(tmpl)
+	router.SetFuncMap(funcMap)
+	router.LoadHTMLGlob("web/templates/**/*")
 
 	router.Static("/static", "./web/static")
 
-	// Register routes
 	newsHandler.RegisterRoutes(router)
 
-	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

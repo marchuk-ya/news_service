@@ -1,11 +1,8 @@
-.PHONY: build run test docker-build docker-up docker-down
-
-# Build the application
-build:
-	go build -o bin/server cmd/server/main.go
+.PHONY: run test docker-build docker-up docker-down
 
 # Run the application
 run:
+	go build -o bin/server cmd/server/main.go
 	go run cmd/server/main.go
 
 # Run tests
