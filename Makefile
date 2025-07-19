@@ -1,4 +1,4 @@
-.PHONY: up down clean deps generate-mocks test-unit test-integration test-coverage build run
+.PHONY: up down clean deps mock test-unit test-integration test-coverage build run swagger
 
 DOCKER_COMPOSE = docker-compose -f docker/docker-compose.yml
 
@@ -16,8 +16,11 @@ deps:
 	go mod download
 	go mod tidy
 
-generate-mocks:
+mock:
 	~/go/bin/mockery --dir internal/domain --name NewsRepository --output internal/mocks --outpkg mocks
+
+swagger:
+	~/go/bin/swag init -g cmd/main.go -o docs
 
 test-unit:
 	go test -v -coverprofile=coverage.out ./internal/... -short

@@ -13,14 +13,14 @@ import (
 	"news_service/internal/tools"
 )
 
-func setupTestService() (*mocks.NewsRepository, domain.NewsRepository) {
-	mockRepo := new(mocks.NewsRepository)
+func setupTestService(t *testing.T) (*mocks.NewsRepository, domain.NewsService) {
+	mockRepo := mocks.NewNewsRepository(t)
 	service := NewNewsService(mockRepo)
 	return mockRepo, service
 }
 
 func TestGetAllNews(t *testing.T) {
-	mockRepo, service := setupTestService()
+	mockRepo, service := setupTestService(t)
 
 	tests := []struct {
 		name      string
@@ -77,7 +77,7 @@ func TestGetAllNews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup mock expectations
+			// Setup mock expectations using generated mock
 			mockRepo.On("GetAll", mock.Anything, tt.page, tt.limit).
 				Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
 
@@ -95,13 +95,12 @@ func TestGetAllNews(t *testing.T) {
 				assert.Equal(t, tt.mockNews, news)
 				assert.Equal(t, tt.mockTotal, total)
 			}
-			mockRepo.AssertExpectations(t)
 		})
 	}
 }
 
 func TestSearchNews(t *testing.T) {
-	mockRepo, service := setupTestService()
+	mockRepo, service := setupTestService(t)
 
 	tests := []struct {
 		name      string
@@ -155,6 +154,7 @@ func TestSearchNews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock expectations using generated mock
 			mockRepo.On("SearchNews", mock.Anything, tt.query, tt.page, tt.limit).
 				Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
 
@@ -170,13 +170,12 @@ func TestSearchNews(t *testing.T) {
 				assert.Equal(t, tt.mockNews, news)
 				assert.Equal(t, tt.mockTotal, total)
 			}
-			mockRepo.AssertExpectations(t)
 		})
 	}
 }
 
 func TestCreateNews(t *testing.T) {
-	mockRepo, service := setupTestService()
+	mockRepo, service := setupTestService(t)
 
 	tests := []struct {
 		name    string
@@ -206,6 +205,7 @@ func TestCreateNews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock expectations using generated mock
 			mockRepo.On("Create", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
 				return n.Title == tt.news.Title && n.Content == tt.news.Content
 			})).Return(tt.mockErr).Once()
@@ -220,13 +220,12 @@ func TestCreateNews(t *testing.T) {
 				assert.NotZero(t, tt.news.CreatedAt)
 				assert.NotZero(t, tt.news.UpdatedAt)
 			}
-			mockRepo.AssertExpectations(t)
 		})
 	}
 }
 
 func TestGetByID(t *testing.T) {
-	mockRepo, service := setupTestService()
+	mockRepo, service := setupTestService(t)
 
 	tests := []struct {
 		name     string
@@ -252,27 +251,170 @@ func TestGetByID(t *testing.T) {
 			name:     "not found",
 			id:       primitive.NewObjectID().Hex(),
 			mockNews: nil,
-			mockErr:  assert.AnError,
+			mockErr:  domain.ErrNotFound,
+			wantErr:  true,
+		},
+		{
+			name:     "empty id",
+			id:       "",
+			mockNews: nil,
+			mockErr:  nil,
 			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockRepo.On("GetByID", mock.Anything, tt.id).
-				Return(tt.mockNews, tt.mockErr).Once()
+			if tt.id != "" {
+				// Setup mock expectations using generated mock
+				mockRepo.On("GetByID", mock.Anything, tt.id).
+					Return(tt.mockNews, tt.mockErr).Once()
+			}
 
 			news, err := service.GetByID(context.Background(), tt.id)
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Equal(t, tt.mockErr, err)
+				if tt.mockErr != nil {
+					assert.ErrorIs(t, err, tt.mockErr)
+				}
 				assert.Nil(t, news)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.mockNews, news)
 			}
-			mockRepo.AssertExpectations(t)
+		})
+	}
+}
+
+func TestUpdateNews(t *testing.T) {
+	mockRepo, service := setupTestService(t)
+
+	tests := []struct {
+		name     string
+		news     *domain.News
+		mockNews *domain.News
+		mockErr  error
+		wantErr  bool
+	}{
+		{
+			name: "successful update",
+			news: &domain.News{
+				ID:      primitive.NewObjectID(),
+				Title:   "Updated News",
+				Content: "Updated Content",
+			},
+			mockNews: &domain.News{
+				ID:        primitive.NewObjectID(),
+				Title:     "Original News",
+				Content:   "Original Content",
+				CreatedAt: tools.GetCurrentTime(),
+				UpdatedAt: tools.GetCurrentTime(),
+			},
+			mockErr: nil,
+			wantErr: false,
+		},
+		{
+			name: "news not found",
+			news: &domain.News{
+				ID:      primitive.NewObjectID(),
+				Title:   "Updated News",
+				Content: "Updated Content",
+			},
+			mockNews: nil,
+			mockErr:  domain.ErrNotFound,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock expectations using generated mock
+			mockRepo.On("GetByID", mock.Anything, tt.news.ID.Hex()).
+				Return(tt.mockNews, tt.mockErr).Once()
+
+			if tt.mockErr == nil {
+				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
+					return n.ID == tt.news.ID && n.Title == tt.news.Title && n.Content == tt.news.Content
+				})).Return(nil).Once()
+			}
+
+			err := service.Update(context.Background(), tt.news)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, tt.mockErr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.mockNews.CreatedAt, tt.news.CreatedAt)
+				assert.NotZero(t, tt.news.UpdatedAt)
+			}
+		})
+	}
+}
+
+func TestDeleteNews(t *testing.T) {
+	mockRepo, service := setupTestService(t)
+
+	tests := []struct {
+		name     string
+		id       string
+		mockNews *domain.News
+		mockErr  error
+		wantErr  bool
+	}{
+		{
+			name: "successful deletion",
+			id:   primitive.NewObjectID().Hex(),
+			mockNews: &domain.News{
+				ID:        primitive.NewObjectID(),
+				Title:     "Test News",
+				Content:   "Test Content",
+				CreatedAt: tools.GetCurrentTime(),
+				UpdatedAt: tools.GetCurrentTime(),
+			},
+			mockErr: nil,
+			wantErr: false,
+		},
+		{
+			name:     "news not found",
+			id:       primitive.NewObjectID().Hex(),
+			mockNews: nil,
+			mockErr:  domain.ErrNotFound,
+			wantErr:  true,
+		},
+		{
+			name:     "empty id",
+			id:       "",
+			mockNews: nil,
+			mockErr:  nil,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.id != "" {
+				// Setup mock expectations using generated mock
+				mockRepo.On("GetByID", mock.Anything, tt.id).
+					Return(tt.mockNews, tt.mockErr).Once()
+
+				if tt.mockErr == nil {
+					mockRepo.On("Delete", mock.Anything, tt.id).
+						Return(nil).Once()
+				}
+			}
+
+			err := service.Delete(context.Background(), tt.id)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.mockErr != nil {
+					assert.ErrorIs(t, err, tt.mockErr)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

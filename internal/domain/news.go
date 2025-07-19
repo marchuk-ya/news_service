@@ -25,3 +25,13 @@ type NewsRepository interface {
 	Delete(ctx context.Context, id string) error
 	SearchNews(ctx context.Context, query string, page, limit int) ([]*News, int64, error)
 }
+
+// NewsService defines the interface for news business operations
+type NewsService interface {
+	Create(ctx context.Context, news *News) error
+	GetByID(ctx context.Context, id string) (*News, error)
+	GetAll(ctx context.Context, page, limit int) ([]*News, int64, error)
+	Update(ctx context.Context, news *News) error
+	Delete(ctx context.Context, id string) error
+	SearchNews(ctx context.Context, query string, page, limit int) ([]*News, int64, error)
+}

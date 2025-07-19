@@ -1,0 +1,427 @@
+basePath: /
+definitions:
+  handler.CreateNewsRequest:
+    properties:
+      content:
+        example: This is a breaking news article content.
+        minLength: 10
+        type: string
+      title:
+        example: Breaking News
+        maxLength: 200
+        minLength: 3
+        type: string
+    required:
+    - content
+    - title
+    type: object
+  handler.ErrorResponse:
+    properties:
+      code:
+        example: NOT_FOUND
+        type: string
+      error:
+        example: News not found
+        type: string
+      message:
+        example: The requested news article was not found
+        type: string
+    type: object
+  handler.HealthResponse:
+    properties:
+      service:
+        example: news_service
+        type: string
+      status:
+        example: healthy
+        type: string
+      version:
+        example: 1.0.0
+        type: string
+    type: object
+  handler.ListNewsResponse:
+    properties:
+      limit:
+        example: 10
+        type: integer
+      news:
+        items:
+          $ref: '#/definitions/handler.NewsResponse'
+        type: array
+      page:
+        example: 1
+        type: integer
+      total:
+        example: 100
+        type: integer
+      total_pages:
+        example: 10
+        type: integer
+    type: object
+  handler.NewsResponse:
+    properties:
+      content:
+        example: This is a breaking news article content.
+        type: string
+      created_at:
+        example: "2024-01-01T12:00:00Z"
+        type: string
+      id:
+        example: 507f1f77bcf86cd799439011
+        type: string
+      title:
+        example: Breaking News
+        type: string
+      updated_at:
+        example: "2024-01-01T12:00:00Z"
+        type: string
+    type: object
+  handler.ReadinessResponse:
+    properties:
+      database:
+        example: connected
+        type: string
+      service:
+        example: news_service
+        type: string
+      status:
+        example: ready
+        type: string
+      version:
+        example: 1.0.0
+        type: string
+    type: object
+  handler.SearchNewsResponse:
+    properties:
+      limit:
+        example: 10
+        type: integer
+      news:
+        items:
+          $ref: '#/definitions/handler.NewsResponse'
+        type: array
+      page:
+        example: 1
+        type: integer
+      query:
+        example: breaking
+        type: string
+      total:
+        example: 5
+        type: integer
+      total_pages:
+        example: 1
+        type: integer
+    type: object
+  handler.UpdateNewsRequest:
+    properties:
+      content:
+        example: This is an updated breaking news article content.
+        minLength: 10
+        type: string
+      title:
+        example: Updated Breaking News
+        maxLength: 200
+        minLength: 3
+        type: string
+    required:
+    - content
+    - title
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: A RESTful API for managing news articles
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: News Service API
+  version: "1.0"
+paths:
+  /api/v1/health:
+    get:
+      consumes:
+      - application/json
+      description: Basic health check endpoint for API
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.HealthResponse'
+      summary: Health check API
+      tags:
+      - health
+  /api/v1/health/readiness:
+    get:
+      consumes:
+      - application/json
+      description: Readiness check including database connectivity for API
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.ReadinessResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Readiness check API
+      tags:
+      - health
+  /api/v1/news:
+    get:
+      consumes:
+      - application/json
+      description: Get a paginated list of all news articles
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: 'Number of items per page (default: 10, max: 100)'
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.ListNewsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: List all news articles
+      tags:
+      - news
+    post:
+      consumes:
+      - application/json
+      description: Create a new news article with title and content
+      parameters:
+      - description: News article data
+        in: body
+        name: news
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateNewsRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handler.NewsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Create a new news article
+      tags:
+      - news
+  /api/v1/news/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a news article by ID
+      parameters:
+      - description: News ID
+        example: '"507f1f77bcf86cd799439011"'
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Delete a news article
+      tags:
+      - news
+    get:
+      consumes:
+      - application/json
+      description: Get a specific news article by its ID
+      parameters:
+      - description: News ID
+        example: '"507f1f77bcf86cd799439011"'
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.NewsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Get a news article by ID
+      tags:
+      - news
+    put:
+      consumes:
+      - application/json
+      description: Update an existing news article by ID
+      parameters:
+      - description: News ID
+        example: '"507f1f77bcf86cd799439011"'
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated news article data
+        in: body
+        name: news
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateNewsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.NewsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Update a news article
+      tags:
+      - news
+  /api/v1/news/search:
+    get:
+      consumes:
+      - application/json
+      description: Search news articles by title and content
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: 'Page number (default: 1)'
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - description: 'Number of items per page (default: 10, max: 100)'
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.SearchNewsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Search news articles
+      tags:
+      - news
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: Basic health check endpoint
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.HealthResponse'
+      summary: Health check
+      tags:
+      - health
+  /health/readiness:
+    get:
+      consumes:
+      - application/json
+      description: Readiness check including database connectivity
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.ReadinessResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Readiness check
+      tags:
+      - health
+securityDefinitions:
+  ApiKeyAuth:
+    description: API key for authentication
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

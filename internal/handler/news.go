@@ -4,46 +4,25 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"news_service/internal/domain"
 	"news_service/internal/tools"
+	"news_service/internal/validation"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type NewsHandler struct {
-	service domain.NewsRepository
+	service   domain.NewsService
+	validator *validation.Validator
 }
 
-func NewNewsHandler(service domain.NewsRepository) *NewsHandler {
+func NewNewsHandler(service domain.NewsService) *NewsHandler {
 	return &NewsHandler{
-		service: service,
+		service:   service,
+		validator: validation.NewValidator(),
 	}
-}
-
-// validateNews performs simple validation of news fields
-func (h *NewsHandler) validateNews(news *domain.News) []string {
-	var errors []string
-
-	title := strings.TrimSpace(news.Title)
-	if title == "" {
-		errors = append(errors, "Title cannot be empty")
-	} else if len(title) < 3 {
-		errors = append(errors, "Title must contain at least 3 characters")
-	} else if len(title) > 200 {
-		errors = append(errors, "Title cannot exceed 200 characters")
-	}
-
-	content := strings.TrimSpace(news.Content)
-	if content == "" {
-		errors = append(errors, "Content cannot be empty")
-	} else if len(content) < 10 {
-		errors = append(errors, "Content must contain at least 10 characters")
-	}
-
-	return errors
 }
 
 func (h *NewsHandler) RegisterRoutes(router *gin.Engine) {
@@ -117,17 +96,19 @@ func (h *NewsHandler) CreateNews(c *gin.Context) {
 	news.Title = c.PostForm("title")
 	news.Content = c.PostForm("content")
 
-	now := tools.GetCurrentTime()
-	news.CreatedAt = now
-	news.UpdatedAt = now
-
-	if errors := h.validateNews(&news); len(errors) > 0 {
+	// Validate input
+	result := h.validator.ValidateNews(news.Title, news.Content)
+	if !result.IsValid {
 		c.HTML(http.StatusBadRequest, "news/create.html", gin.H{
 			"error":  "Validation Error",
-			"errors": errors,
+			"errors": result.Errors,
 		})
 		return
 	}
+
+	now := tools.GetCurrentTime()
+	news.CreatedAt = now
+	news.UpdatedAt = now
 
 	if err := h.service.Create(c.Request.Context(), &news); err != nil {
 		log.Printf("Error creating news: %v", err)
@@ -210,10 +191,12 @@ func (h *NewsHandler) UpdateNews(c *gin.Context) {
 	existingNews.Content = c.PostForm("content")
 	existingNews.UpdatedAt = tools.GetCurrentTime()
 
-	if errors := h.validateNews(existingNews); len(errors) > 0 {
+	// Validate input
+	result := h.validator.ValidateNews(existingNews.Title, existingNews.Content)
+	if !result.IsValid {
 		c.HTML(http.StatusBadRequest, "news/edit.html", gin.H{
 			"error":  "Validation Error",
-			"errors": errors,
+			"errors": result.Errors,
 			"News":   existingNews,
 		})
 		return
@@ -251,6 +234,22 @@ func (h *NewsHandler) SearchNews(c *gin.Context) {
 	page := c.DefaultQuery("page", "1")
 	limit := c.DefaultQuery("limit", "10")
 
+	// Validate search query before calling service
+	result := h.validator.ValidateSearchQuery(query)
+	if !result.IsValid {
+		// Get current news list to show the page with error
+		news, total, _ := h.service.GetAll(c.Request.Context(), 1, 10)
+		c.HTML(http.StatusBadRequest, "news/list.html", gin.H{
+			"error":  "Search query cannot be empty",
+			"errors": result.Errors,
+			"News":   news,
+			"Total":  total,
+			"Page":   1,
+			"Limit":  10,
+		})
+		return
+	}
+
 	pageNum, err := strconv.Atoi(page)
 	if err != nil || pageNum < 1 {
 		pageNum = 1
@@ -264,6 +263,21 @@ func (h *NewsHandler) SearchNews(c *gin.Context) {
 	news, total, err := h.service.SearchNews(c.Request.Context(), query, pageNum, limitNum)
 	if err != nil {
 		log.Printf("Error searching news: %v", err)
+
+		// Check if it's a validation error
+		if domain.IsInvalidInput(err) {
+			// Get current news list to show the page with error
+			news, total, _ := h.service.GetAll(c.Request.Context(), 1, 10)
+			c.HTML(http.StatusBadRequest, "news/list.html", gin.H{
+				"error": "Invalid search query",
+				"News":  news,
+				"Total": total,
+				"Page":  1,
+				"Limit": 10,
+			})
+			return
+		}
+
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"error": "Failed to search news",
 		})
