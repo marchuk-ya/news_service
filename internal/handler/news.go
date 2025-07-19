@@ -1,12 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 
 	"news_service/internal/domain"
-	"news_service/internal/tools"
 	"news_service/internal/validation"
 
 	"github.com/gin-gonic/gin"
@@ -14,13 +14,13 @@ import (
 )
 
 type NewsHandler struct {
-	service   domain.NewsService
+	useCase   domain.NewsUseCase
 	validator *validation.Validator
 }
 
-func NewNewsHandler(service domain.NewsService) *NewsHandler {
+func NewNewsHandler(useCase domain.NewsUseCase) *NewsHandler {
 	return &NewsHandler{
-		service:   service,
+		useCase:   useCase,
 		validator: validation.NewValidator(),
 	}
 }
@@ -71,7 +71,7 @@ func (h *NewsHandler) ListNews(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
-	news, total, err := h.service.GetAll(c.Request.Context(), page, limit)
+	news, total, err := h.useCase.GetAllNews(c.Request.Context(), page, limit)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"error": "Failed to fetch news",
@@ -92,12 +92,11 @@ func (h *NewsHandler) ShowCreateForm(c *gin.Context) {
 }
 
 func (h *NewsHandler) CreateNews(c *gin.Context) {
-	var news domain.News
-	news.Title = c.PostForm("title")
-	news.Content = c.PostForm("content")
+	title := c.PostForm("title")
+	content := c.PostForm("content")
 
 	// Validate input
-	result := h.validator.ValidateNews(news.Title, news.Content)
+	result := h.validator.ValidateNews(title, content)
 	if !result.IsValid {
 		c.HTML(http.StatusBadRequest, "news/create.html", gin.H{
 			"error":  "Validation Error",
@@ -106,11 +105,8 @@ func (h *NewsHandler) CreateNews(c *gin.Context) {
 		return
 	}
 
-	now := tools.GetCurrentTime()
-	news.CreatedAt = now
-	news.UpdatedAt = now
-
-	if err := h.service.Create(c.Request.Context(), &news); err != nil {
+	_, err := h.useCase.CreateNews(c.Request.Context(), title, content)
+	if err != nil {
 		log.Printf("Error creating news: %v", err)
 		c.HTML(http.StatusInternalServerError, "news/create.html", gin.H{
 			"error": "Error creating news",
@@ -147,7 +143,7 @@ func (h *NewsHandler) GetNews(c *gin.Context) {
 		return
 	}
 
-	news, err := h.service.GetByID(c.Request.Context(), objectID.Hex())
+	news, err := h.useCase.GetNewsByID(c.Request.Context(), objectID.Hex())
 	if err != nil {
 		h.renderError(c, http.StatusNotFound, "News not found")
 		return
@@ -164,7 +160,7 @@ func (h *NewsHandler) ShowEditForm(c *gin.Context) {
 		return
 	}
 
-	news, err := h.service.GetByID(c.Request.Context(), objectID.Hex())
+	news, err := h.useCase.GetNewsByID(c.Request.Context(), objectID.Hex())
 	if err != nil {
 		h.renderError(c, http.StatusNotFound, "News not found")
 		return
@@ -181,19 +177,14 @@ func (h *NewsHandler) UpdateNews(c *gin.Context) {
 		return
 	}
 
-	existingNews, err := h.service.GetByID(c.Request.Context(), objectID.Hex())
-	if err != nil {
-		h.renderError(c, http.StatusNotFound, "News not found")
-		return
-	}
-
-	existingNews.Title = c.PostForm("title")
-	existingNews.Content = c.PostForm("content")
-	existingNews.UpdatedAt = tools.GetCurrentTime()
+	title := c.PostForm("title")
+	content := c.PostForm("content")
 
 	// Validate input
-	result := h.validator.ValidateNews(existingNews.Title, existingNews.Content)
+	result := h.validator.ValidateNews(title, content)
 	if !result.IsValid {
+		// Get existing news to show in form
+		existingNews, _ := h.useCase.GetNewsByID(c.Request.Context(), objectID.Hex())
 		c.HTML(http.StatusBadRequest, "news/edit.html", gin.H{
 			"error":  "Validation Error",
 			"errors": result.Errors,
@@ -202,9 +193,19 @@ func (h *NewsHandler) UpdateNews(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Update(c.Request.Context(), existingNews); err != nil {
+	_, err := h.useCase.UpdateNews(c.Request.Context(), objectID.Hex(), title, content)
+	if err != nil {
 		log.Printf("Error updating news: %v", err)
-		c.HTML(http.StatusInternalServerError, "news/edit.html", gin.H{
+
+		// Check error type to return appropriate status
+		status := http.StatusInternalServerError
+		if errors.Is(err, domain.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+
+		// Get existing news to show in form
+		existingNews, _ := h.useCase.GetNewsByID(c.Request.Context(), objectID.Hex())
+		c.HTML(status, "news/edit.html", gin.H{
 			"error": "Error updating news",
 			"News":  existingNews,
 		})
@@ -220,7 +221,7 @@ func (h *NewsHandler) DeleteNews(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(c.Request.Context(), objectID.Hex()); err != nil {
+	if err := h.useCase.DeleteNews(c.Request.Context(), objectID.Hex()); err != nil {
 		log.Printf("Error deleting news: %v", err)
 		h.renderError(c, http.StatusInternalServerError, "Failed to delete news")
 		return
@@ -238,7 +239,7 @@ func (h *NewsHandler) SearchNews(c *gin.Context) {
 	result := h.validator.ValidateSearchQuery(query)
 	if !result.IsValid {
 		// Get current news list to show the page with error
-		news, total, _ := h.service.GetAll(c.Request.Context(), 1, 10)
+		news, total, _ := h.useCase.GetAllNews(c.Request.Context(), 1, 10)
 		c.HTML(http.StatusBadRequest, "news/list.html", gin.H{
 			"error":  "Search query cannot be empty",
 			"errors": result.Errors,
@@ -250,34 +251,12 @@ func (h *NewsHandler) SearchNews(c *gin.Context) {
 		return
 	}
 
-	pageNum, err := strconv.Atoi(page)
-	if err != nil || pageNum < 1 {
-		pageNum = 1
-	}
+	pageNum, _ := strconv.Atoi(page)
+	limitNum, _ := strconv.Atoi(limit)
 
-	limitNum, err := strconv.Atoi(limit)
-	if err != nil || limitNum < 1 {
-		limitNum = 10
-	}
-
-	news, total, err := h.service.SearchNews(c.Request.Context(), query, pageNum, limitNum)
+	news, total, err := h.useCase.SearchNews(c.Request.Context(), query, pageNum, limitNum)
 	if err != nil {
 		log.Printf("Error searching news: %v", err)
-
-		// Check if it's a validation error
-		if domain.IsInvalidInput(err) {
-			// Get current news list to show the page with error
-			news, total, _ := h.service.GetAll(c.Request.Context(), 1, 10)
-			c.HTML(http.StatusBadRequest, "news/list.html", gin.H{
-				"error": "Invalid search query",
-				"News":  news,
-				"Total": total,
-				"Page":  1,
-				"Limit": 10,
-			})
-			return
-		}
-
 		c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 			"error": "Failed to search news",
 		})

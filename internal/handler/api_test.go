@@ -49,14 +49,14 @@ func TestAPIListNews(t *testing.T) {
 			limit: "10",
 			mockNews: []*domain.News{
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 1",
 					Content:   "Content 1",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
 				},
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 2",
 					Content:   "Content 2",
 					CreatedAt: time.Now(),
@@ -165,7 +165,7 @@ func TestAPIGetNews(t *testing.T) {
 			name: "successful retrieval",
 			id:   primitive.NewObjectID().Hex(),
 			mockNews: &domain.News{
-				ID:        primitive.NewObjectID(),
+				ID:        primitive.NewObjectID().Hex(),
 				Title:     "Test News",
 				Content:   "Test Content",
 				CreatedAt: time.Now(),
@@ -228,7 +228,7 @@ func TestAPIUpdateNews(t *testing.T) {
 				Content: "Updated Content",
 			},
 			mockNews: &domain.News{
-				ID:        fixedID,
+				ID:        fixedIDHex,
 				Title:     "Original News",
 				Content:   "Original Content",
 				CreatedAt: time.Now(),
@@ -260,7 +260,7 @@ func TestAPIUpdateNews(t *testing.T) {
 
 			if tt.mockErr == nil {
 				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-					return n.ID == fixedID && n.Title == tt.request.Title && n.Content == tt.request.Content
+					return n.ID == fixedIDHex && n.Title == tt.request.Title && n.Content == tt.request.Content
 				})).Return(nil).Maybe()
 			}
 
@@ -290,7 +290,7 @@ func TestAPIDeleteNews(t *testing.T) {
 			name: "successful deletion",
 			id:   primitive.NewObjectID().Hex(),
 			mockNews: &domain.News{
-				ID:        primitive.NewObjectID(),
+				ID:        primitive.NewObjectID().Hex(),
 				Title:     "Test News",
 				Content:   "Test Content",
 				CreatedAt: time.Now(),
@@ -348,7 +348,7 @@ func TestAPISearchNews(t *testing.T) {
 			limit: "10",
 			mockNews: []*domain.News{
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News",
 					Content:   "Test Content",
 					CreatedAt: time.Now(),

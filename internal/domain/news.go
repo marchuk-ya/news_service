@@ -3,17 +3,15 @@ package domain
 import (
 	"context"
 	"time"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // News represents a news article in the system
 type News struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Title     string             `bson:"title" json:"title" validate:"required,min=3,max=200,notblank" validateMsg:"Title is required, must be between 3 and 200 characters, and cannot be blank"`
-	Content   string             `bson:"content" json:"content" validate:"required,min=10,notblank" validateMsg:"Content is required, must be at least 10 characters, and cannot be blank"`
-	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title" validate:"required,min=3,max=200,notblank"`
+	Content   string    `json:"content" validate:"required,min=10,notblank"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // NewsRepository defines the interface for news storage operations
@@ -26,7 +24,17 @@ type NewsRepository interface {
 	SearchNews(ctx context.Context, query string, page, limit int) ([]*News, int64, error)
 }
 
-// NewsService defines the interface for news business operations
+// NewsUseCase defines the interface for news business operations
+type NewsUseCase interface {
+	CreateNews(ctx context.Context, title, content string) (*News, error)
+	GetNewsByID(ctx context.Context, id string) (*News, error)
+	GetAllNews(ctx context.Context, page, limit int) ([]*News, int64, error)
+	UpdateNews(ctx context.Context, id, title, content string) (*News, error)
+	DeleteNews(ctx context.Context, id string) error
+	SearchNews(ctx context.Context, query string, page, limit int) ([]*News, int64, error)
+}
+
+// NewsService defines the interface for news business operations (legacy - for backward compatibility)
 type NewsService interface {
 	Create(ctx context.Context, news *News) error
 	GetByID(ctx context.Context, id string) (*News, error)

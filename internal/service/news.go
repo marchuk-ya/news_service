@@ -10,43 +10,55 @@ import (
 	"news_service/internal/validation"
 )
 
-type newsService struct {
+// newsUseCase implements domain.NewsUseCase
+type newsUseCase struct {
 	repo      domain.NewsRepository
 	validator *validation.Validator
 }
 
-func NewNewsService(repo domain.NewsRepository) domain.NewsService {
-	return &newsService{
+// NewNewsUseCase creates a new news use case
+func NewNewsUseCase(repo domain.NewsRepository) domain.NewsUseCase {
+	return &newsUseCase{
 		repo:      repo,
 		validator: validation.NewValidator(),
 	}
 }
 
-func (s *newsService) Create(ctx context.Context, news *domain.News) error {
+// CreateNews creates a new news article with validation and business logic
+func (uc *newsUseCase) CreateNews(ctx context.Context, title, content string) (*domain.News, error) {
 	// Validate input
-	result := s.validator.ValidateNews(news.Title, news.Content)
+	result := uc.validator.ValidateNews(title, content)
 	if !result.IsValid {
-		return fmt.Errorf("%w: %v", domain.ErrValidationFailed, s.validator.Error(result))
+		return nil, fmt.Errorf("%w: %v", domain.ErrValidationFailed, uc.validator.Error(result))
 	}
 
 	// Sanitize content
-	news.Title = strings.TrimSpace(news.Title)
-	news.Content = strings.TrimSpace(news.Content)
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
 
-	// Set timestamps
-	now := tools.GetCurrentTime()
-	news.CreatedAt = now
-	news.UpdatedAt = now
+	// Create news object
+	news := &domain.News{
+		Title:     title,
+		Content:   content,
+		CreatedAt: tools.GetCurrentTime(),
+		UpdatedAt: tools.GetCurrentTime(),
+	}
 
-	return s.repo.Create(ctx, news)
+	// Save to repository
+	if err := uc.repo.Create(ctx, news); err != nil {
+		return nil, fmt.Errorf("%w: failed to create news: %v", domain.ErrDatabaseOperation, err)
+	}
+
+	return news, nil
 }
 
-func (s *newsService) GetByID(ctx context.Context, id string) (*domain.News, error) {
+// GetNewsByID retrieves a news article by ID
+func (uc *newsUseCase) GetNewsByID(ctx context.Context, id string) (*domain.News, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: news ID cannot be empty", domain.ErrInvalidInput)
 	}
 
-	news, err := s.repo.GetByID(ctx, id)
+	news, err := uc.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
@@ -54,9 +66,10 @@ func (s *newsService) GetByID(ctx context.Context, id string) (*domain.News, err
 	return news, nil
 }
 
-func (s *newsService) GetAll(ctx context.Context, page, limit int) ([]*domain.News, int64, error) {
+// GetAllNews retrieves all news articles with pagination
+func (uc *newsUseCase) GetAllNews(ctx context.Context, page, limit int) ([]*domain.News, int64, error) {
 	// Validate pagination parameters
-	result := s.validator.ValidatePagination(page, limit)
+	result := uc.validator.ValidatePagination(page, limit)
 	if !result.IsValid {
 		// Apply defaults if validation fails
 		if page < 1 {
@@ -70,56 +83,78 @@ func (s *newsService) GetAll(ctx context.Context, page, limit int) ([]*domain.Ne
 		}
 	}
 
-	return s.repo.GetAll(ctx, page, limit)
+	news, total, err := uc.repo.GetAll(ctx, page, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: failed to get news: %v", domain.ErrDatabaseOperation, err)
+	}
+
+	return news, total, nil
 }
 
-func (s *newsService) Update(ctx context.Context, news *domain.News) error {
+// UpdateNews updates an existing news article
+func (uc *newsUseCase) UpdateNews(ctx context.Context, id, title, content string) (*domain.News, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: news ID cannot be empty", domain.ErrInvalidInput)
+	}
+
 	// Validate input
-	result := s.validator.ValidateNews(news.Title, news.Content)
+	result := uc.validator.ValidateNews(title, content)
 	if !result.IsValid {
-		return fmt.Errorf("%w: %v", domain.ErrValidationFailed, s.validator.Error(result))
+		return nil, fmt.Errorf("%w: %v", domain.ErrValidationFailed, uc.validator.Error(result))
 	}
 
 	// Check if news exists
-	existing, err := s.repo.GetByID(ctx, news.ID.Hex())
+	existing, err := uc.repo.GetByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%w: %v", domain.ErrNotFound, err)
+		return nil, fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
 
 	// Sanitize content
-	news.Title = strings.TrimSpace(news.Title)
-	news.Content = strings.TrimSpace(news.Content)
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
 
-	// Preserve original creation time
-	news.CreatedAt = existing.CreatedAt
-	news.UpdatedAt = tools.GetCurrentTime()
+	// Update fields
+	existing.Title = title
+	existing.Content = content
+	existing.UpdatedAt = tools.GetCurrentTime()
 
-	return s.repo.Update(ctx, news)
+	// Save to repository
+	if err := uc.repo.Update(ctx, existing); err != nil {
+		return nil, fmt.Errorf("%w: failed to update news: %v", domain.ErrDatabaseOperation, err)
+	}
+
+	return existing, nil
 }
 
-func (s *newsService) Delete(ctx context.Context, id string) error {
+// DeleteNews deletes a news article
+func (uc *newsUseCase) DeleteNews(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: news ID cannot be empty", domain.ErrInvalidInput)
 	}
 
 	// Check if news exists before deletion
-	_, err := s.repo.GetByID(ctx, id)
+	_, err := uc.repo.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%w: %v", domain.ErrNotFound, err)
 	}
 
-	return s.repo.Delete(ctx, id)
+	if err := uc.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("%w: failed to delete news: %v", domain.ErrDatabaseOperation, err)
+	}
+
+	return nil
 }
 
-func (s *newsService) SearchNews(ctx context.Context, query string, page, limit int) ([]*domain.News, int64, error) {
+// SearchNews searches for news articles
+func (uc *newsUseCase) SearchNews(ctx context.Context, query string, page, limit int) ([]*domain.News, int64, error) {
 	// Validate search query
-	result := s.validator.ValidateSearchQuery(query)
+	result := uc.validator.ValidateSearchQuery(query)
 	if !result.IsValid {
-		return nil, 0, fmt.Errorf("%w: %v", domain.ErrInvalidInput, s.validator.Error(result))
+		return nil, 0, fmt.Errorf("%w: %v", domain.ErrInvalidInput, uc.validator.Error(result))
 	}
 
 	// Validate pagination parameters
-	paginationResult := s.validator.ValidatePagination(page, limit)
+	paginationResult := uc.validator.ValidatePagination(page, limit)
 	if !paginationResult.IsValid {
 		// Apply defaults if validation fails
 		if page < 1 {
@@ -133,5 +168,54 @@ func (s *newsService) SearchNews(ctx context.Context, query string, page, limit 
 		}
 	}
 
-	return s.repo.SearchNews(ctx, query, page, limit)
+	news, total, err := uc.repo.SearchNews(ctx, query, page, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: failed to search news: %v", domain.ErrDatabaseOperation, err)
+	}
+
+	return news, total, nil
+}
+
+// Legacy service implementation for backward compatibility
+// This wraps the use case to maintain compatibility with existing handlers
+type newsService struct {
+	useCase domain.NewsUseCase
+}
+
+func NewNewsService(repo domain.NewsRepository) domain.NewsService {
+	return &newsService{
+		useCase: NewNewsUseCase(repo),
+	}
+}
+
+func (s *newsService) Create(ctx context.Context, news *domain.News) error {
+	createdNews, err := s.useCase.CreateNews(ctx, news.Title, news.Content)
+	if err != nil {
+		return err
+	}
+
+	// Copy the generated ID back to the input news object
+	news.ID = createdNews.ID
+	return nil
+}
+
+func (s *newsService) GetByID(ctx context.Context, id string) (*domain.News, error) {
+	return s.useCase.GetNewsByID(ctx, id)
+}
+
+func (s *newsService) GetAll(ctx context.Context, page, limit int) ([]*domain.News, int64, error) {
+	return s.useCase.GetAllNews(ctx, page, limit)
+}
+
+func (s *newsService) Update(ctx context.Context, news *domain.News) error {
+	_, err := s.useCase.UpdateNews(ctx, news.ID, news.Title, news.Content)
+	return err
+}
+
+func (s *newsService) Delete(ctx context.Context, id string) error {
+	return s.useCase.DeleteNews(ctx, id)
+}
+
+func (s *newsService) SearchNews(ctx context.Context, query string, page, limit int) ([]*domain.News, int64, error) {
+	return s.useCase.SearchNews(ctx, query, page, limit)
 }

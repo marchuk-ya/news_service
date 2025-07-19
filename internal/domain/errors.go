@@ -14,6 +14,8 @@ var (
 	ErrForbidden         = errors.New("forbidden")
 	ErrInternal          = errors.New("internal server error")
 	ErrDatabaseOperation = errors.New("database operation failed")
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrTimeout           = errors.New("operation timeout")
 )
 
 // ValidationError represents validation errors
@@ -46,6 +48,20 @@ func (e BusinessError) Error() string {
 	return fmt.Sprintf("business error [%s]: %s", e.Code, e.Message)
 }
 
+// DatabaseError represents database-specific errors
+type DatabaseError struct {
+	Operation string
+	Err       error
+}
+
+func (e DatabaseError) Error() string {
+	return fmt.Sprintf("database error during %s: %v", e.Operation, e.Err)
+}
+
+func (e DatabaseError) Unwrap() error {
+	return e.Err
+}
+
 // IsNotFound checks if error is a not found error
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
@@ -59,4 +75,19 @@ func IsValidationError(err error) bool {
 // IsInvalidInput checks if error is an invalid input error
 func IsInvalidInput(err error) bool {
 	return errors.Is(err, ErrInvalidInput)
+}
+
+// IsDatabaseError checks if error is a database error
+func IsDatabaseError(err error) bool {
+	return errors.Is(err, ErrDatabaseOperation)
+}
+
+// IsRateLimitError checks if error is a rate limit error
+func IsRateLimitError(err error) bool {
+	return errors.Is(err, ErrRateLimitExceeded)
+}
+
+// IsTimeoutError checks if error is a timeout error
+func IsTimeoutError(err error) bool {
+	return errors.Is(err, ErrTimeout)
 }

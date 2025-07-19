@@ -49,9 +49,9 @@
                         Created: {{.CreatedAt.Format "2006-01-02 15:04:05"}}
                     </div>
                     <div class="flex gap-2">
-                        <a href="/news/{{.ID.Hex}}" class="btn-link">View</a>
-                        <a href="/news/{{.ID.Hex}}/edit" class="btn-edit">Edit</a>
-                        <form action="/news/{{.ID.Hex}}/delete" method="POST" class="inline">
+                        <a href="/news/{{.ID}}" class="btn-link">View</a>
+                        <a href="/news/{{.ID}}/edit" class="btn-edit">Edit</a>
+                        <form action="/news/{{.ID}}/delete" method="POST" class="inline">
                             <button type="submit" 
                                     onclick="return confirm('Are you sure you want to delete this news?')"
                                     class="btn-danger">

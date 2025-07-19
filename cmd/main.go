@@ -178,8 +178,9 @@ func main() {
 
 	// Initialize dependencies
 	newsRepo := mongodb.NewNewsRepository(client, cfg.Database.Database)
-	newsService := service.NewNewsService(newsRepo)
-	newsHandler := handler.NewNewsHandler(newsService)
+	newsUseCase := service.NewNewsUseCase(newsRepo)
+	newsService := service.NewNewsService(newsRepo) // Legacy compatibility
+	newsHandler := handler.NewNewsHandler(newsUseCase)
 	newsAPIHandler := handler.NewNewsAPIHandler(newsService)
 	healthHandler := handler.NewHealthHandler(newsRepo)
 
@@ -187,11 +188,14 @@ func main() {
 	router := gin.New()
 
 	// Add middleware
+	router.Use(middleware.RecoveryMiddleware(logger))
+	router.Use(middleware.RequestIDMiddleware())
 	router.Use(middleware.LoggingMiddleware(logger))
-	router.Use(middleware.ErrorHandlingMiddleware())
+	router.Use(middleware.ErrorHandlingMiddleware(logger))
 	router.Use(middleware.SecurityMiddleware())
 	router.Use(middleware.CORSMiddleware())
 	router.Use(middleware.RateLimitMiddleware())
+	router.Use(middleware.TimeoutMiddleware(30 * time.Second))
 
 	// Setup template functions
 	funcMap := template.FuncMap{

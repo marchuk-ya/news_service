@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -28,6 +29,44 @@ var (
 	ErrEmptyQuery   = errors.New("search query cannot be empty")
 	ErrNewsNotFound = errors.New("news not found")
 )
+
+// NewsDocument represents the MongoDB document structure
+type NewsDocument struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty"`
+	Title     string             `bson:"title"`
+	Content   string             `bson:"content"`
+	CreatedAt time.Time          `bson:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at"`
+}
+
+// toDomain converts MongoDB document to domain model
+func (doc *NewsDocument) toDomain() *domain.News {
+	return &domain.News{
+		ID:        doc.ID.Hex(),
+		Title:     doc.Title,
+		Content:   doc.Content,
+		CreatedAt: doc.CreatedAt,
+		UpdatedAt: doc.UpdatedAt,
+	}
+}
+
+// fromDomain converts domain model to MongoDB document
+func fromDomain(news *domain.News) *NewsDocument {
+	doc := &NewsDocument{
+		Title:     news.Title,
+		Content:   news.Content,
+		CreatedAt: news.CreatedAt,
+		UpdatedAt: news.UpdatedAt,
+	}
+
+	if news.ID != "" {
+		if objectID, err := primitive.ObjectIDFromHex(news.ID); err == nil {
+			doc.ID = objectID
+		}
+	}
+
+	return doc
+}
 
 type newsRepository struct {
 	client     *mongo.Client
@@ -53,9 +92,17 @@ func (r *newsRepository) Create(ctx context.Context, news *domain.News) error {
 		return ErrEmptyContent
 	}
 
-	news.ID = primitive.NewObjectID()
-	_, err := r.collection.InsertOne(ctx, news)
-	return err
+	doc := fromDomain(news)
+	doc.ID = primitive.NewObjectID()
+
+	_, err := r.collection.InsertOne(ctx, doc)
+	if err != nil {
+		return err
+	}
+
+	// Update the domain model with the generated ID
+	news.ID = doc.ID.Hex()
+	return nil
 }
 
 func (r *newsRepository) GetByID(ctx context.Context, id string) (*domain.News, error) {
@@ -64,8 +111,8 @@ func (r *newsRepository) GetByID(ctx context.Context, id string) (*domain.News, 
 		return nil, ErrInvalidID
 	}
 
-	var news domain.News
-	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&news)
+	var doc NewsDocument
+	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, ErrNewsNotFound
@@ -73,7 +120,7 @@ func (r *newsRepository) GetByID(ctx context.Context, id string) (*domain.News, 
 		return nil, err
 	}
 
-	return &news, nil
+	return doc.toDomain(), nil
 }
 
 func (r *newsRepository) GetAll(ctx context.Context, page, limit int) ([]*domain.News, int64, error) {
@@ -100,9 +147,15 @@ func (r *newsRepository) GetAll(ctx context.Context, page, limit int) ([]*domain
 	}
 	defer cursor.Close(ctx)
 
-	var news []*domain.News
-	if err = cursor.All(ctx, &news); err != nil {
+	var docs []NewsDocument
+	if err = cursor.All(ctx, &docs); err != nil {
 		return nil, 0, err
+	}
+
+	// Convert to domain models
+	news := make([]*domain.News, len(docs))
+	for i, doc := range docs {
+		news[i] = doc.toDomain()
 	}
 
 	return news, total, nil
@@ -116,6 +169,11 @@ func (r *newsRepository) Update(ctx context.Context, news *domain.News) error {
 		return ErrEmptyContent
 	}
 
+	objectID, err := primitive.ObjectIDFromHex(news.ID)
+	if err != nil {
+		return ErrInvalidID
+	}
+
 	update := bson.M{
 		"$set": bson.M{
 			"title":      news.Title,
@@ -124,7 +182,7 @@ func (r *newsRepository) Update(ctx context.Context, news *domain.News) error {
 		},
 	}
 
-	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": news.ID}, update)
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
 	if err != nil {
 		return err
 	}
@@ -192,9 +250,15 @@ func (r *newsRepository) SearchNews(ctx context.Context, query string, page, lim
 	}
 	defer cursor.Close(ctx)
 
-	var news []*domain.News
-	if err := cursor.All(ctx, &news); err != nil {
+	var docs []NewsDocument
+	if err := cursor.All(ctx, &docs); err != nil {
 		return nil, 0, fmt.Errorf("failed to decode documents: %w", err)
+	}
+
+	// Convert to domain models
+	news := make([]*domain.News, len(docs))
+	for i, doc := range docs {
+		news[i] = doc.toDomain()
 	}
 
 	return news, total, nil
@@ -244,9 +308,15 @@ func (r *newsRepository) Search(ctx context.Context, query string) ([]*domain.Ne
 	}
 	defer cursor.Close(ctx)
 
-	var news []*domain.News
-	if err = cursor.All(ctx, &news); err != nil {
+	var docs []NewsDocument
+	if err = cursor.All(ctx, &docs); err != nil {
 		return nil, err
+	}
+
+	// Convert to domain models
+	news := make([]*domain.News, len(docs))
+	for i, doc := range docs {
+		news[i] = doc.toDomain()
 	}
 
 	return news, nil

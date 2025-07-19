@@ -101,7 +101,7 @@ func (h *NewsAPIHandler) ListNews(c *gin.Context) {
 	newsResponse := make([]*NewsResponse, len(news))
 	for i, n := range news {
 		newsResponse[i] = &NewsResponse{
-			ID:        n.ID.Hex(),
+			ID:        n.ID,
 			Title:     n.Title,
 			Content:   n.Content,
 			CreatedAt: n.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -157,7 +157,7 @@ func (h *NewsAPIHandler) CreateNews(c *gin.Context) {
 	}
 
 	response := &NewsResponse{
-		ID:        news.ID.Hex(),
+		ID:        news.ID,
 		Title:     news.Title,
 		Content:   news.Content,
 		CreatedAt: news.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -212,7 +212,7 @@ func (h *NewsAPIHandler) GetNews(c *gin.Context) {
 	}
 
 	response := &NewsResponse{
-		ID:        news.ID.Hex(),
+		ID:        news.ID,
 		Title:     news.Title,
 		Content:   news.Content,
 		CreatedAt: news.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -289,7 +289,7 @@ func (h *NewsAPIHandler) UpdateNews(c *gin.Context) {
 	}
 
 	response := &NewsResponse{
-		ID:        existingNews.ID.Hex(),
+		ID:        existingNews.ID,
 		Title:     existingNews.Title,
 		Content:   existingNews.Content,
 		CreatedAt: existingNews.CreatedAt.Format("2006-01-02T15:04:05Z"),
@@ -396,7 +396,7 @@ func (h *NewsAPIHandler) SearchNews(c *gin.Context) {
 	newsResponse := make([]*NewsResponse, len(news))
 	for i, n := range news {
 		newsResponse[i] = &NewsResponse{
-			ID:        n.ID.Hex(),
+			ID:        n.ID,
 			Title:     n.Title,
 			Content:   n.Content,
 			CreatedAt: n.CreatedAt.Format("2006-01-02T15:04:05Z"),

@@ -59,8 +59,8 @@ func setupTestHandler(t *testing.T) (*gin.Engine, *mocks.NewsRepository, *NewsHa
 	router.HTMLRender = &mockTemplate{}
 
 	mockRepo := mocks.NewNewsRepository(t)
-	service := service.NewNewsService(mockRepo)
-	handler := NewNewsHandler(service)
+	useCase := service.NewNewsUseCase(mockRepo)
+	handler := NewNewsHandler(useCase)
 
 	handler.RegisterRoutes(router)
 
@@ -84,14 +84,14 @@ func TestListNews(t *testing.T) {
 			limit: "10",
 			mockNews: []*domain.News{
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 1",
 					Content:   "Content 1",
 					CreatedAt: time.Now(),
 					UpdatedAt: time.Now(),
 				},
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 2",
 					Content:   "Content 2",
 					CreatedAt: time.Now(),
@@ -154,7 +154,7 @@ func TestSearchNews(t *testing.T) {
 			limit: "10",
 			mockNews: []*domain.News{
 				{
-					ID:        primitive.NewObjectID(),
+					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News",
 					Content:   "Test Content",
 					CreatedAt: time.Now(),
@@ -294,7 +294,7 @@ func TestGetNews(t *testing.T) {
 			name: "successful retrieval",
 			id:   primitive.NewObjectID().Hex(),
 			mockNews: &domain.News{
-				ID:        primitive.NewObjectID(),
+				ID:        primitive.NewObjectID().Hex(),
 				Title:     "Test News",
 				Content:   "Test Content",
 				CreatedAt: time.Now(),
@@ -349,7 +349,7 @@ func TestUpdateNews(t *testing.T) {
 				Content: "Updated Content",
 			},
 			mockNews: &domain.News{
-				ID:        fixedID,
+				ID:        fixedIDHex,
 				Title:     "Original News",
 				Content:   "Original Content",
 				CreatedAt: time.Now(),
@@ -381,7 +381,7 @@ func TestUpdateNews(t *testing.T) {
 
 			if tt.mockErr == nil {
 				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-					return n.ID == fixedID && n.Title == tt.news.Title && n.Content == tt.news.Content
+					return n.ID == fixedIDHex && n.Title == tt.news.Title && n.Content == tt.news.Content
 				})).Return(nil).Maybe()
 			}
 
@@ -411,7 +411,7 @@ func TestDeleteNews(t *testing.T) {
 			name: "successful deletion",
 			id:   primitive.NewObjectID().Hex(),
 			mockNews: &domain.News{
-				ID:        primitive.NewObjectID(),
+				ID:        primitive.NewObjectID().Hex(),
 				Title:     "Test News",
 				Content:   "Test Content",
 				CreatedAt: time.Now(),

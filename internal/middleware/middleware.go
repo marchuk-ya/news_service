@@ -1,13 +1,17 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	"news_service/internal/domain"
 	"news_service/internal/logger"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // RateLimiter provides rate limiting functionality
@@ -123,15 +127,49 @@ func LoggingMiddleware(log *logger.Logger) gin.HandlerFunc {
 }
 
 // ErrorHandlingMiddleware provides centralized error handling
-func ErrorHandlingMiddleware() gin.HandlerFunc {
+func ErrorHandlingMiddleware(log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
 		// Handle any errors that occurred during request processing
 		if len(c.Errors) > 0 {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Internal server error",
-				"code":  "INTERNAL_ERROR",
+			err := c.Errors.Last()
+
+			// Log the error
+			log.Error("Request error",
+				"error", err.Error(),
+				"path", c.Request.URL.Path,
+				"method", c.Request.Method,
+				"client_ip", c.ClientIP(),
+			)
+
+			// Determine appropriate status code based on error type
+			status := http.StatusInternalServerError
+			errorCode := "INTERNAL_ERROR"
+			message := "Internal server error"
+
+			if domain.IsNotFound(err.Err) {
+				status = http.StatusNotFound
+				errorCode = "NOT_FOUND"
+				message = "Resource not found"
+			} else if domain.IsValidationError(err.Err) {
+				status = http.StatusBadRequest
+				errorCode = "VALIDATION_ERROR"
+				message = "Validation failed"
+			} else if domain.IsInvalidInput(err.Err) {
+				status = http.StatusBadRequest
+				errorCode = "INVALID_INPUT"
+				message = "Invalid input"
+			} else if domain.IsRateLimitError(err.Err) {
+				status = http.StatusTooManyRequests
+				errorCode = "RATE_LIMIT_EXCEEDED"
+				message = "Rate limit exceeded"
+			}
+
+			c.JSON(status, gin.H{
+				"error":   message,
+				"code":    errorCode,
+				"message": err.Error(),
 			})
 			return
 		}
@@ -181,6 +219,71 @@ func SecurityMiddleware() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		c.Next()
 	}
+}
+
+// RequestIDMiddleware adds a unique request ID to each request
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = generateRequestID()
+		}
+
+		c.Header("X-Request-ID", requestID)
+		c.Set("request_id", requestID)
+		c.Next()
+	}
+}
+
+// TimeoutMiddleware adds request timeout
+func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+
+		c.Request = c.Request.WithContext(ctx)
+
+		done := make(chan struct{})
+		go func() {
+			c.Next()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			c.JSON(http.StatusRequestTimeout, gin.H{
+				"error": "Request timeout",
+				"code":  "TIMEOUT",
+			})
+			c.Abort()
+			return
+		}
+	}
+}
+
+// RecoveryMiddleware recovers from panics
+func RecoveryMiddleware(log *logger.Logger) gin.HandlerFunc {
+	return gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
+		log.Error("Panic recovered",
+			"panic", recovered,
+			"path", c.Request.URL.Path,
+			"method", c.Request.Method,
+			"client_ip", c.ClientIP(),
+		)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Internal server error",
+			"code":  "INTERNAL_ERROR",
+		})
+	})
+}
+
+// generateRequestID generates a unique request ID
+func generateRequestID() string {
+	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), uuid.New().String()[:8])
 }
