@@ -2,7 +2,7 @@
 <div class="max-w-4xl mx-auto">
     <div class="mb-8 flex justify-between items-center">
         <form hx-get="/news/search" hx-trigger="submit" hx-target="#news-list" class="flex gap-4 flex-1" onsubmit="return false;">
-            <input type="text" name="q" value="{{.Query}}" placeholder="Search news..." 
+            <input type="text" name="q" value="{{.Query}}" placeholder="Search news..." required
                    class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <input type="hidden" name="page" value="1">
             <input type="hidden" name="limit" value="{{.Limit}}">
@@ -97,12 +97,45 @@ document.addEventListener('DOMContentLoaded', function() {
     const form = document.querySelector('form');
     form.addEventListener('submit', function(e) {
         e.preventDefault();
-        const query = form.querySelector('input[name="q"]').value;
+        const queryInput = form.querySelector('input[name="q"]');
+        const query = queryInput.value.trim();
         const page = form.querySelector('input[name="page"]').value;
         const limit = form.querySelector('input[name="limit"]').value;
         
+        // Client-side validation for empty search query
+        if (query === '') {
+            // Show error message
+            const errorDiv = document.querySelector('.search-error');
+            if (errorDiv) {
+                errorDiv.style.display = 'block';
+            } else {
+                // Create error message if it doesn't exist
+                const newErrorDiv = document.createElement('div');
+                newErrorDiv.className = 'search-error bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4';
+                newErrorDiv.innerHTML = '<strong class="font-bold">Error:</strong> <span class="block sm:inline">Search query cannot be empty</span>';
+                form.parentNode.insertBefore(newErrorDiv, form.nextSibling);
+            }
+            queryInput.focus();
+            return false;
+        }
+        
+        // Hide error message if it exists
+        const errorDiv = document.querySelector('.search-error');
+        if (errorDiv) {
+            errorDiv.style.display = 'none';
+        }
+        
         const url = `/news/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`;
         window.location.href = url;
+    });
+    
+    // Clear error message when user starts typing
+    const queryInput = form.querySelector('input[name="q"]');
+    queryInput.addEventListener('input', function() {
+        const errorDiv = document.querySelector('.search-error');
+        if (errorDiv && this.value.trim() !== '') {
+            errorDiv.style.display = 'none';
+        }
     });
 });
 </script>
