@@ -179,9 +179,8 @@ func main() {
 	// Initialize dependencies
 	newsRepo := mongodb.NewNewsRepository(client, cfg.Database.Database)
 	newsUseCase := service.NewNewsUseCase(newsRepo)
-	newsService := service.NewNewsService(newsRepo) // Legacy compatibility
 	newsHandler := handler.NewNewsHandler(newsUseCase)
-	newsAPIHandler := handler.NewNewsAPIHandler(newsService)
+	newsAPIHandler := handler.NewNewsAPIHandler(newsUseCase)
 	healthHandler := handler.NewHealthHandler(newsRepo)
 
 	// Setup Gin router
