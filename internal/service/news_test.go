@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -13,12 +12,6 @@ import (
 	"news_service/internal/mocks"
 	"news_service/internal/tools"
 )
-
-func setupTestService(t *testing.T) (*mocks.NewsRepository, domain.NewsService) {
-	mockRepo := mocks.NewNewsRepository(t)
-	service := NewNewsService(mockRepo)
-	return mockRepo, service
-}
 
 func setupTestUseCase(t *testing.T) (*mocks.NewsRepository, domain.NewsUseCase) {
 	mockRepo := mocks.NewNewsRepository(t)
@@ -256,6 +249,16 @@ func TestUpdateNewsUseCase(t *testing.T) {
 			wantErr:   true,
 			wantTitle: "",
 		},
+		{
+			name:      "validation error - empty content",
+			id:        primitive.NewObjectID().Hex(),
+			title:     "Updated News",
+			content:   "",
+			mockNews:  nil,
+			mockErr:   nil,
+			wantErr:   true,
+			wantTitle: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -263,17 +266,17 @@ func TestUpdateNewsUseCase(t *testing.T) {
 			// Reset mock for each test
 			mockRepo.ExpectedCalls = nil
 
-			// Додаємо мок GetByID лише якщо title не порожній і не очікується помилка валідації
-			if tt.id != "" && !tt.wantErr && tt.title != "" {
+			if tt.id != "" && !tt.wantErr {
+				// Mock GetByID call for successful update
 				mockRepo.On("GetByID", mock.Anything, tt.id).
-					Return(tt.mockNews, tt.mockErr).Once()
-				if tt.mockNews != nil {
-					mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-						return n.Title == tt.title && n.Content == tt.content
-					})).Return(nil).Once()
-				}
-			} else if tt.id != "" && tt.mockErr != nil {
-				// Для not found
+					Return(tt.mockNews, nil).Once()
+
+				// Mock Update call
+				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
+					return n.Title == tt.title && n.Content == tt.content
+				})).Return(nil).Once()
+			} else if tt.id != "" && tt.wantErr && tt.mockErr != nil {
+				// Mock GetByID call for error cases
 				mockRepo.On("GetByID", mock.Anything, tt.id).
 					Return(tt.mockNews, tt.mockErr).Once()
 			}
@@ -287,6 +290,7 @@ func TestUpdateNewsUseCase(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotNil(t, news)
 				assert.Equal(t, tt.wantTitle, news.Title)
+				assert.NotZero(t, news.UpdatedAt)
 			}
 		})
 	}
@@ -334,10 +338,12 @@ func TestDeleteNewsUseCase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.id != "" {
+				// Mock GetByID call to check if news exists
 				mockRepo.On("GetByID", mock.Anything, tt.id).
 					Return(tt.mockNews, tt.mockErr).Once()
 
-				if tt.mockNews != nil {
+				if tt.mockErr == nil {
+					// Mock Delete call for successful deletion
 					mockRepo.On("Delete", mock.Anything, tt.id).
 						Return(nil).Once()
 				}
@@ -396,21 +402,28 @@ func TestSearchNewsUseCase(t *testing.T) {
 			wantErr:   true,
 		},
 		{
-			name:      "invalid pagination",
+			name:      "repository error",
 			query:     "test",
-			page:      0,
-			limit:     0,
+			page:      1,
+			limit:     10,
 			mockNews:  nil,
 			mockTotal: 0,
-			mockErr:   nil,
-			wantErr:   false, // Should apply defaults
+			mockErr:   assert.AnError,
+			wantErr:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Reset mock for each test
+			mockRepo.ExpectedCalls = nil
+
 			if !tt.wantErr {
-				mockRepo.On("SearchNews", mock.Anything, tt.query, mock.Anything, mock.Anything).
+				mockRepo.On("SearchNews", mock.Anything, tt.query, tt.page, tt.limit).
+					Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
+			} else if tt.mockErr != nil {
+				// Mock for repository error case
+				mockRepo.On("SearchNews", mock.Anything, tt.query, tt.page, tt.limit).
 					Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
 			}
 
@@ -429,9 +442,8 @@ func TestSearchNewsUseCase(t *testing.T) {
 	}
 }
 
-// Legacy Service Tests
 func TestGetAllNews(t *testing.T) {
-	mockRepo, service := setupTestService(t)
+	mockRepo, useCase := setupTestUseCase(t)
 
 	tests := []struct {
 		name      string
@@ -443,21 +455,21 @@ func TestGetAllNews(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:  "successful pagination",
+			name:  "successful retrieval",
 			page:  1,
 			limit: 10,
 			mockNews: []*domain.News{
 				{
 					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 1",
-					Content:   "Content 1",
+					Content:   "Test Content 1",
 					CreatedAt: tools.GetCurrentTime(),
 					UpdatedAt: tools.GetCurrentTime(),
 				},
 				{
 					ID:        primitive.NewObjectID().Hex(),
 					Title:     "Test News 2",
-					Content:   "Content 2",
+					Content:   "Test Content 2",
 					CreatedAt: tools.GetCurrentTime(),
 					UpdatedAt: tools.GetCurrentTime(),
 				},
@@ -467,8 +479,26 @@ func TestGetAllNews(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "invalid page",
-			page:      0,
+			name:      "empty result",
+			page:      1,
+			limit:     10,
+			mockNews:  []*domain.News{},
+			mockTotal: 0,
+			mockErr:   nil,
+			wantErr:   false,
+		},
+		{
+			name:      "repository error",
+			page:      1,
+			limit:     10,
+			mockNews:  nil,
+			mockTotal: 0,
+			mockErr:   assert.AnError,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid pagination - negative page",
+			page:      -1,
 			limit:     10,
 			mockNews:  []*domain.News{},
 			mockTotal: 0,
@@ -476,7 +506,7 @@ func TestGetAllNews(t *testing.T) {
 			wantErr:   false, // Should apply defaults
 		},
 		{
-			name:      "invalid limit",
+			name:      "invalid pagination - zero limit",
 			page:      1,
 			limit:     0,
 			mockNews:  []*domain.News{},
@@ -485,7 +515,7 @@ func TestGetAllNews(t *testing.T) {
 			wantErr:   false, // Should apply defaults
 		},
 		{
-			name:      "limit too high",
+			name:      "invalid pagination - limit too high",
 			page:      1,
 			limit:     200,
 			mockNews:  []*domain.News{},
@@ -497,10 +527,27 @@ func TestGetAllNews(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockRepo.On("GetAll", mock.Anything, mock.Anything, mock.Anything).
+			// Reset mock for each test
+			mockRepo.ExpectedCalls = nil
+
+			// Determine expected page and limit after validation
+			expectedPage := tt.page
+			expectedLimit := tt.limit
+
+			if expectedPage < 1 {
+				expectedPage = 1
+			}
+			if expectedLimit < 1 {
+				expectedLimit = 10
+			}
+			if expectedLimit > 100 {
+				expectedLimit = 100
+			}
+
+			mockRepo.On("GetAll", mock.Anything, expectedPage, expectedLimit).
 				Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
 
-			news, total, err := service.GetAll(context.Background(), tt.page, tt.limit)
+			news, total, err := useCase.GetAllNews(context.Background(), tt.page, tt.limit)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -510,292 +557,6 @@ func TestGetAllNews(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.mockNews, news)
 				assert.Equal(t, tt.mockTotal, total)
-			}
-		})
-	}
-}
-
-func TestSearchNews(t *testing.T) {
-	mockRepo, service := setupTestService(t)
-
-	tests := []struct {
-		name      string
-		query     string
-		page      int
-		limit     int
-		mockNews  []*domain.News
-		mockTotal int64
-		mockErr   error
-		wantErr   bool
-	}{
-		{
-			name:  "successful search",
-			query: "test",
-			page:  1,
-			limit: 10,
-			mockNews: []*domain.News{
-				{
-					ID:        primitive.NewObjectID().Hex(),
-					Title:     "Test News",
-					Content:   "Test Content",
-					CreatedAt: tools.GetCurrentTime(),
-					UpdatedAt: tools.GetCurrentTime(),
-				},
-			},
-			mockTotal: 1,
-			mockErr:   nil,
-			wantErr:   false,
-		},
-		{
-			name:      "empty query",
-			query:     "",
-			page:      1,
-			limit:     10,
-			mockNews:  nil,
-			mockTotal: 0,
-			mockErr:   nil,
-			wantErr:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !tt.wantErr {
-				mockRepo.On("SearchNews", mock.Anything, tt.query, mock.Anything, mock.Anything).
-					Return(tt.mockNews, tt.mockTotal, tt.mockErr).Once()
-			}
-
-			news, total, err := service.SearchNews(context.Background(), tt.query, tt.page, tt.limit)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, news)
-				assert.Zero(t, total)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.mockNews, news)
-				assert.Equal(t, tt.mockTotal, total)
-			}
-		})
-	}
-}
-
-func TestCreateNews(t *testing.T) {
-	mockRepo, service := setupTestService(t)
-
-	tests := []struct {
-		name    string
-		news    *domain.News
-		mockErr error
-		wantErr bool
-	}{
-		{
-			name: "successful creation",
-			news: &domain.News{
-				Title:     "Test News",
-				Content:   "Test Content",
-				CreatedAt: tools.GetCurrentTime(),
-				UpdatedAt: tools.GetCurrentTime(),
-			},
-			mockErr: nil,
-			wantErr: false,
-		},
-		{
-			name: "validation error",
-			news: &domain.News{
-				Title:     "",
-				Content:   "Test Content",
-				CreatedAt: tools.GetCurrentTime(),
-				UpdatedAt: tools.GetCurrentTime(),
-			},
-			mockErr: nil,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !tt.wantErr {
-				mockRepo.On("Create", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-					return n.Title == tt.news.Title && n.Content == tt.news.Content
-				})).Run(func(args mock.Arguments) {
-					// Set the ID on the news object to simulate repository behavior
-					news := args.Get(1).(*domain.News)
-					news.ID = primitive.NewObjectID().Hex()
-				}).Return(tt.mockErr).Once()
-			}
-
-			err := service.Create(context.Background(), tt.news)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.NotEmpty(t, tt.news.ID)
-			}
-		})
-	}
-}
-
-func TestGetByID(t *testing.T) {
-	mockRepo, service := setupTestService(t)
-
-	tests := []struct {
-		name     string
-		id       string
-		mockNews *domain.News
-		mockErr  error
-		wantErr  bool
-	}{
-		{
-			name: "successful retrieval",
-			id:   primitive.NewObjectID().Hex(),
-			mockNews: &domain.News{
-				ID:        primitive.NewObjectID().Hex(),
-				Title:     "Test News",
-				Content:   "Test Content",
-				CreatedAt: tools.GetCurrentTime(),
-				UpdatedAt: tools.GetCurrentTime(),
-			},
-			mockErr: nil,
-			wantErr: false,
-		},
-		{
-			name:     "empty ID",
-			id:       "",
-			mockNews: nil,
-			mockErr:  nil,
-			wantErr:  true,
-		},
-		{
-			name:     "not found",
-			id:       primitive.NewObjectID().Hex(),
-			mockNews: nil,
-			mockErr:  domain.ErrNotFound,
-			wantErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.id != "" {
-				mockRepo.On("GetByID", mock.Anything, tt.id).
-					Return(tt.mockNews, tt.mockErr).Once()
-			}
-
-			news, err := service.GetByID(context.Background(), tt.id)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, news)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.mockNews, news)
-			}
-		})
-	}
-}
-
-func TestUpdateNews(t *testing.T) {
-	mockRepo, service := setupTestService(t)
-
-	tests := []struct {
-		name    string
-		news    *domain.News
-		mockErr error
-		wantErr bool
-	}{
-		{
-			name: "successful update",
-			news: &domain.News{
-				ID:        primitive.NewObjectID().Hex(),
-				Title:     "Updated News",
-				Content:   "Updated Content",
-				CreatedAt: tools.GetCurrentTime(),
-				UpdatedAt: tools.GetCurrentTime(),
-			},
-			mockErr: nil,
-			wantErr: false,
-		},
-		{
-			name: "validation error",
-			news: &domain.News{
-				ID:        primitive.NewObjectID().Hex(),
-				Title:     "",
-				Content:   "Updated Content",
-				CreatedAt: tools.GetCurrentTime(),
-				UpdatedAt: tools.GetCurrentTime(),
-			},
-			mockErr: nil,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if !tt.wantErr {
-				// Mock GetByID call that happens in UpdateNews
-				mockRepo.On("GetByID", mock.Anything, tt.news.ID).Return(tt.news, nil).Once()
-				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-					return n.Title == tt.news.Title && n.Content == tt.news.Content
-				})).Return(tt.mockErr).Once()
-			}
-
-			err := service.Update(context.Background(), tt.news)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestDeleteNews(t *testing.T) {
-	mockRepo, service := setupTestService(t)
-
-	tests := []struct {
-		name    string
-		id      string
-		mockErr error
-		wantErr bool
-	}{
-		{
-			name:    "successful deletion",
-			id:      primitive.NewObjectID().Hex(),
-			mockErr: nil,
-			wantErr: false,
-		},
-		{
-			name:    "empty ID",
-			id:      "",
-			mockErr: nil,
-			wantErr: true,
-		},
-		{
-			name:    "not found",
-			id:      primitive.NewObjectID().Hex(),
-			mockErr: domain.ErrNotFound,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.id != "" {
-				// Mock GetByID call that happens in DeleteNews
-				mockRepo.On("GetByID", mock.Anything, tt.id).Return(&domain.News{ID: tt.id}, nil).Once()
-				mockRepo.On("Delete", mock.Anything, tt.id).
-					Return(tt.mockErr).Once()
-			}
-
-			err := service.Delete(context.Background(), tt.id)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
 			}
 		})
 	}
@@ -810,7 +571,7 @@ func BenchmarkCreateNewsUseCase(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = useCase.CreateNews(context.Background(), "Test News", "Test Content")
+		_, _ = useCase.CreateNews(context.Background(), "Benchmark News", "Benchmark Content")
 	}
 }
 
@@ -820,10 +581,10 @@ func BenchmarkGetNewsByIDUseCase(b *testing.B) {
 
 	mockNews := &domain.News{
 		ID:        primitive.NewObjectID().Hex(),
-		Title:     "Test News",
-		Content:   "Test Content",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Title:     "Benchmark News",
+		Content:   "Benchmark Content",
+		CreatedAt: tools.GetCurrentTime(),
+		UpdatedAt: tools.GetCurrentTime(),
 	}
 
 	mockRepo.On("GetByID", mock.Anything, mock.Anything).Return(mockNews, nil)

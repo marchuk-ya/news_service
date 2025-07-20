@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -11,13 +12,13 @@ import (
 
 // NewsAPIHandler handles REST API requests for news
 type NewsAPIHandler struct {
-	service domain.NewsService
+	useCase domain.NewsUseCase
 }
 
 // NewNewsAPIHandler creates a new API handler
-func NewNewsAPIHandler(service domain.NewsService) *NewsAPIHandler {
+func NewNewsAPIHandler(useCase domain.NewsUseCase) *NewsAPIHandler {
 	return &NewsAPIHandler{
-		service: service,
+		useCase: useCase,
 	}
 }
 
@@ -87,7 +88,7 @@ func (h *NewsAPIHandler) ListNews(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 
-	news, total, err := h.service.GetAll(c.Request.Context(), page, limit)
+	news, total, err := h.useCase.GetAllNews(c.Request.Context(), page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:   "Failed to fetch news",
@@ -142,12 +143,8 @@ func (h *NewsAPIHandler) CreateNews(c *gin.Context) {
 		return
 	}
 
-	news := &domain.News{
-		Title:   req.Title,
-		Content: req.Content,
-	}
-
-	if err := h.service.Create(c.Request.Context(), news); err != nil {
+	news, err := h.useCase.CreateNews(c.Request.Context(), req.Title, req.Content)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:   "Failed to create news",
 			Code:    "INTERNAL_ERROR",
@@ -190,15 +187,15 @@ func (h *NewsAPIHandler) GetNews(c *gin.Context) {
 		return
 	}
 
-	news, err := h.service.GetByID(c.Request.Context(), id)
+	news, err := h.useCase.GetNewsByID(c.Request.Context(), id)
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
 
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
-		} else if err == domain.ErrInvalidInput {
+		} else if errors.Is(err, domain.ErrInvalidInput) {
 			status = http.StatusBadRequest
 			code = "VALIDATION_ERROR"
 		}
@@ -256,44 +253,33 @@ func (h *NewsAPIHandler) UpdateNews(c *gin.Context) {
 		return
 	}
 
-	// Get existing news to preserve creation time
-	existingNews, err := h.service.GetByID(c.Request.Context(), id)
+	news, err := h.useCase.UpdateNews(c.Request.Context(), id, req.Title, req.Content)
 	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
 
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
+		} else if errors.Is(err, domain.ErrInvalidInput) {
+			status = http.StatusBadRequest
+			code = "VALIDATION_ERROR"
 		}
 
 		c.JSON(status, ErrorResponse{
-			Error:   "Failed to get existing news",
+			Error:   "Failed to update news",
 			Code:    code,
 			Message: err.Error(),
 		})
 		return
 	}
 
-	// Update fields
-	existingNews.Title = req.Title
-	existingNews.Content = req.Content
-
-	if err := h.service.Update(c.Request.Context(), existingNews); err != nil {
-		c.JSON(http.StatusInternalServerError, ErrorResponse{
-			Error:   "Failed to update news",
-			Code:    "INTERNAL_ERROR",
-			Message: err.Error(),
-		})
-		return
-	}
-
 	response := &NewsResponse{
-		ID:        existingNews.ID,
-		Title:     existingNews.Title,
-		Content:   existingNews.Content,
-		CreatedAt: existingNews.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: existingNews.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		ID:        news.ID,
+		Title:     news.Title,
+		Content:   news.Content,
+		CreatedAt: news.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt: news.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -322,14 +308,15 @@ func (h *NewsAPIHandler) DeleteNews(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+	err := h.useCase.DeleteNews(c.Request.Context(), id)
+	if err != nil {
 		status := http.StatusInternalServerError
 		code := "INTERNAL_ERROR"
 
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			status = http.StatusNotFound
 			code = "NOT_FOUND"
-		} else if err == domain.ErrInvalidInput {
+		} else if errors.Is(err, domain.ErrInvalidInput) {
 			status = http.StatusBadRequest
 			code = "VALIDATION_ERROR"
 		}
@@ -357,11 +344,11 @@ type SearchNewsResponse struct {
 
 // SearchNews godoc
 // @Summary Search news articles
-// @Description Search news articles by title and content
+// @Description Search for news articles by query string
 // @Tags news
 // @Accept json
 // @Produce json
-// @Param q query string true "Search query"
+// @Param q query string true "Search query" example("breaking news")
 // @Param page query int false "Page number (default: 1)" minimum(1)
 // @Param limit query int false "Number of items per page (default: 10, max: 100)" minimum(1) maximum(100)
 // @Success 200 {object} SearchNewsResponse
@@ -370,6 +357,9 @@ type SearchNewsResponse struct {
 // @Router /api/v1/news/search [get]
 func (h *NewsAPIHandler) SearchNews(c *gin.Context) {
 	query := c.Query("q")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
 	if query == "" {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error:   "Search query is required",
@@ -379,10 +369,7 @@ func (h *NewsAPIHandler) SearchNews(c *gin.Context) {
 		return
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-
-	news, total, err := h.service.SearchNews(c.Request.Context(), query, page, limit)
+	news, total, err := h.useCase.SearchNews(c.Request.Context(), query, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:   "Failed to search news",

@@ -23,8 +23,8 @@ func setupTestAPIHandler(t *testing.T) (*gin.Engine, *mocks.NewsRepository, *New
 	router := gin.New()
 
 	mockRepo := mocks.NewNewsRepository(t)
-	newsService := service.NewNewsService(mockRepo)
-	handler := NewNewsAPIHandler(newsService)
+	newsUseCase := service.NewNewsUseCase(mockRepo)
+	handler := NewNewsAPIHandler(newsUseCase)
 
 	handler.RegisterAPIRoutes(router)
 
@@ -136,7 +136,11 @@ func TestAPICreateNews(t *testing.T) {
 				// Setup mock expectations using generated mock
 				mockRepo.On("Create", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
 					return n.Title == tt.request.Title && n.Content == tt.request.Content
-				})).Return(tt.mockErr).Once()
+				})).Run(func(args mock.Arguments) {
+					// Set the ID on the news object to simulate repository behavior
+					news := args.Get(1).(*domain.News)
+					news.ID = primitive.NewObjectID().Hex()
+				}).Return(tt.mockErr).Once()
 			}
 
 			requestBody, _ := json.Marshal(tt.request)
@@ -179,7 +183,7 @@ func TestAPIGetNews(t *testing.T) {
 			id:             primitive.NewObjectID().Hex(),
 			mockNews:       nil,
 			mockErr:        domain.ErrNotFound,
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 
@@ -246,7 +250,7 @@ func TestAPIUpdateNews(t *testing.T) {
 			},
 			mockNews:       nil,
 			mockErr:        domain.ErrNotFound,
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 
@@ -254,14 +258,19 @@ func TestAPIUpdateNews(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router, mockRepo, _ := setupTestAPIHandler(t)
 
-			// Setup mock expectations using generated mock
-			mockRepo.On("GetByID", mock.Anything, tt.id).
-				Return(tt.mockNews, tt.mockErr).Maybe()
+			if tt.expectedStatus == http.StatusOK {
+				// Mock GetByID call for successful update
+				mockRepo.On("GetByID", mock.Anything, tt.id).
+					Return(tt.mockNews, nil).Once()
 
-			if tt.mockErr == nil {
+				// Mock Update call
 				mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-					return n.ID == fixedIDHex && n.Title == tt.request.Title && n.Content == tt.request.Content
-				})).Return(nil).Maybe()
+					return n.Title == tt.request.Title && n.Content == tt.request.Content
+				})).Return(nil).Once()
+			} else {
+				// Mock GetByID call for error cases
+				mockRepo.On("GetByID", mock.Anything, tt.id).
+					Return(tt.mockNews, tt.mockErr).Once()
 			}
 
 			requestBody, _ := json.Marshal(tt.request)
@@ -272,6 +281,14 @@ func TestAPIUpdateNews(t *testing.T) {
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if tt.expectedStatus == http.StatusOK {
+				var response NewsResponse
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.request.Title, response.Title)
+				assert.Equal(t, tt.request.Content, response.Content)
+			}
 		})
 	}
 }
@@ -297,24 +314,25 @@ func TestAPIDeleteNews(t *testing.T) {
 				UpdatedAt: time.Now(),
 			},
 			mockErr:        nil,
-			expectedStatus: http.StatusNoContent, // 204 for successful deletion
+			expectedStatus: http.StatusNoContent,
 		},
 		{
 			name:           "not found",
 			id:             primitive.NewObjectID().Hex(),
 			mockNews:       nil,
 			mockErr:        domain.ErrNotFound,
-			expectedStatus: http.StatusInternalServerError,
+			expectedStatus: http.StatusNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup mock expectations using generated mock
+			// Mock GetByID call to check if news exists
 			mockRepo.On("GetByID", mock.Anything, tt.id).
 				Return(tt.mockNews, tt.mockErr).Once()
 
 			if tt.mockErr == nil {
+				// Mock Delete call for successful deletion
 				mockRepo.On("Delete", mock.Anything, tt.id).
 					Return(nil).Once()
 			}
@@ -340,6 +358,7 @@ func TestAPISearchNews(t *testing.T) {
 		mockNews       []*domain.News
 		mockTotal      int64
 		expectedStatus int
+		expectedTotal  int64
 	}{
 		{
 			name:  "successful search",
@@ -357,23 +376,27 @@ func TestAPISearchNews(t *testing.T) {
 			},
 			mockTotal:      1,
 			expectedStatus: http.StatusOK,
+			expectedTotal:  1,
 		},
 		{
-			name:           "no results",
-			query:          "nonexistent",
+			name:           "empty query",
+			query:          "",
 			page:           "1",
 			limit:          "10",
-			mockNews:       []*domain.News{},
+			mockNews:       nil,
 			mockTotal:      0,
-			expectedStatus: http.StatusOK,
+			expectedStatus: http.StatusBadRequest,
+			expectedTotal:  0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup mock expectations using generated mock
-			mockRepo.On("SearchNews", mock.Anything, tt.query, mock.Anything, mock.Anything).
-				Return(tt.mockNews, tt.mockTotal, nil).Once()
+			if tt.expectedStatus == http.StatusOK {
+				// Setup mock expectations using generated mock
+				mockRepo.On("SearchNews", mock.Anything, tt.query, mock.Anything, mock.Anything).
+					Return(tt.mockNews, tt.mockTotal, nil).Once()
+			}
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/news/search?q="+tt.query+"&page="+tt.page+"&limit="+tt.limit, nil)
 			w := httptest.NewRecorder()
@@ -382,12 +405,14 @@ func TestAPISearchNews(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 
-			// Parse response
-			var response ListNewsResponse
-			err := json.Unmarshal(w.Body.Bytes(), &response)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.mockTotal, response.Total)
-			assert.Len(t, response.News, len(tt.mockNews))
+			if tt.expectedStatus == http.StatusOK {
+				var response SearchNewsResponse
+				err := json.Unmarshal(w.Body.Bytes(), &response)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedTotal, response.Total)
+				assert.Equal(t, tt.query, response.Query)
+				assert.Len(t, response.News, len(tt.mockNews))
+			}
 		})
 	}
 }

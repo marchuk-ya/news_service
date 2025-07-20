@@ -124,61 +124,7 @@ func TestNewsUseCaseIntegration(t *testing.T) {
 	})
 }
 
-func TestNewsServiceIntegration(t *testing.T) {
-	mockRepo := mocks.NewNewsRepository(t)
-	service := NewNewsService(mockRepo)
-
-	t.Run("legacy service compatibility", func(t *testing.T) {
-		ctx := context.Background()
-
-		// Test Create with domain object
-		news := &domain.News{
-			Title:     "Legacy Test News",
-			Content:   "This is a test for legacy service compatibility",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		mockRepo.On("Create", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-			return n.Title == news.Title && n.Content == news.Content
-		})).Run(func(args mock.Arguments) {
-			// Set the ID on the news object to simulate repository behavior
-			news := args.Get(1).(*domain.News)
-			news.ID = primitive.NewObjectID().Hex()
-		}).Return(nil).Once()
-
-		err := service.Create(ctx, news)
-		require.NoError(t, err)
-		assert.NotEmpty(t, news.ID)
-
-		// Test GetByID
-		mockRepo.On("GetByID", mock.Anything, news.ID).Return(news, nil).Once()
-
-		retrievedNews, err := service.GetByID(ctx, news.ID)
-		require.NoError(t, err)
-		assert.Equal(t, news, retrievedNews)
-
-		// Test Update
-		news.Title = "Updated Legacy Test News"
-		news.Content = "Updated content for legacy test"
-
-		// Mock GetByID call that happens in Update
-		mockRepo.On("GetByID", mock.Anything, news.ID).Return(news, nil).Once()
-		mockRepo.On("Update", mock.Anything, mock.MatchedBy(func(n *domain.News) bool {
-			return n.Title == news.Title && n.Content == news.Content
-		})).Return(nil).Once()
-
-		err = service.Update(ctx, news)
-		require.NoError(t, err)
-
-		// Test Delete
-		mockRepo.On("GetByID", mock.Anything, news.ID).Return(news, nil).Once()
-		mockRepo.On("Delete", mock.Anything, news.ID).Return(nil).Once()
-
-		err = service.Delete(ctx, news.ID)
-		require.NoError(t, err)
-	})
-}
+// Legacy service integration test removed - NewsService was deprecated in favor of NewsUseCase
 
 func TestErrorHandlingIntegration(t *testing.T) {
 	mockRepo := mocks.NewNewsRepository(t)
